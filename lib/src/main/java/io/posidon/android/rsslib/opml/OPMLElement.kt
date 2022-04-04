@@ -1,4 +1,4 @@
-package posidon.android.loader.rss.opml
+package io.posidon.android.rsslib.opml
 
 class OPMLElement(
     var text: String,

@@ -1,13 +1,13 @@
-package posidon.android.loader.demo
+package io.posidon.android.rsslib.demo
 
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
-import posidon.android.loader.rss.RssItem
-import posidon.android.loader.rss.RssLoader
-import posidon.android.loader.rss.RssSource
+import io.posidon.android.rsslib.RSS
+import io.posidon.android.rsslib.RssItem
+import io.posidon.android.rsslib.RssSource
 
-class RSSTestActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -24,7 +24,7 @@ class RSSTestActivity : AppCompatActivity() {
                             if (!u.startsWith("https://") && !u.startsWith("http://")) {
                                 u = "https://$u"
                             }
-                            RssLoader.load(listOf(u)) { erroredSources: List<RssSource>, items: List<RssItem> ->
+                            RSS.load(u) { erroredSources: List<RssSource>, items: List<RssItem> ->
                                 val success = erroredSources.isEmpty()
                                 if (success) {
                                     runOnUiThread {
@@ -56,7 +56,7 @@ class RSSTestActivity : AppCompatActivity() {
                                                 append(it.source.iconUrl)
                                                 append('\n')
                                                 append("Source color: ")
-                                                append(it.source.accentColor.toString(16))
+                                                append(it.source.accentColor?.toString(16))
                                             }
                                         }
                                         err.isVisible = false
@@ -64,7 +64,7 @@ class RSSTestActivity : AppCompatActivity() {
                                 } else {
                                     runOnUiThread {
                                         err.isVisible = true
-                                        err.text = "${System.currentTimeMillis()} Errors (${erroredSources.size}): \n\t${erroredSources.joinToString("\n\t", transform = RssSource::url)}"
+                                        err.text = "${System.currentTimeMillis()} Errors (${erroredSources.size}): \n  ${erroredSources.joinToString("\n  ", transform = RssSource::url)}"
                                         data.isVisible = false
                                     }
                                 }

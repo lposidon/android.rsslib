@@ -1,4 +1,4 @@
-package posidon.android.loader.rss.opml
+package io.posidon.android.rsslib.opml
 
 import android.util.Xml
 import org.xmlpull.v1.XmlPullParser
