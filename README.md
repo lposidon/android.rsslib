@@ -1,4 +1,4 @@
-# Loader
+# RSSlib
 A library to load RSS/Atom feeds easily in android
 
 ## Installation
