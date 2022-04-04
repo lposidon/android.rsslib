@@ -1,4 +1,4 @@
-package posidon.android.loader.rss
+package io.posidon.android.rsslib
 
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserException
@@ -13,10 +13,10 @@ import kotlin.collections.ArrayList
 import kotlin.concurrent.thread
 import kotlin.math.max
 
-object RssLoader {
+@Suppress("MemberVisibilityCanBePrivate")
+object RSS {
 
-    private val pullParserFactory: XmlPullParserFactory = XmlPullParserFactory.newInstance()
-    private val endStrings = arrayOf("",
+    val COMMON_URL_SUFFIXES = arrayOf("",
         "/feed",
         "/feed.xml",
         "/rss",
@@ -28,92 +28,84 @@ object RssLoader {
     /**
      * Loads the rss content asynchronously
      *
-     * [feedUrls] A list of all the rss/atom feeds to load
-     * [maxItems] Maximum amount of items to load (if 0, no limit is applied)
-     * [doSorting] Whether to sort the feed items by time or not
-     * [filter] A function to decide whether to include an item or not
-     * [onFinished] The function to handle the loaded data
+     * @param urls            A list of all the rss/atom feeds to load
+     * @param maxItemsPerURL  Maximum amount of items to load for each URL (if 0, no limit is applied)
+     * @param filter          A function to decide whether to include an item or not
+     * @param onFinished      The function to handle the loaded data (unsorted)
+     *
+     * @return the loading thread
      */
     inline fun load(
-        feedUrls: Collection<String>,
-        maxItems: Int = 0,
-        doSorting: Boolean = true,
+        vararg urls: String,
+        maxItemsPerURL: Int = 0,
         noinline filter: (url: String, title: String, time: Date) -> Boolean = { _, _, _ -> true },
-        crossinline onFinished: (erroredSources: List<RssSource>, items: List<RssItem>) -> Unit,
-    ) = thread(name = "RssLoader loading thread", isDaemon = true) {
+        crossinline onFinished: (errorURLs: List<RssSource>, items: List<RssItem>) -> Unit,
+    ): Thread = thread(name = "RSS loading thread", isDaemon = true) {
         val feedItems = ArrayList<RssItem>()
-        val erroredSources = load(feedItems, feedUrls, maxItems, doSorting, filter)
-        feedItems.trimToSize()
-        onFinished(erroredSources, feedItems)
+        onFinished(load(feedItems, urls.asIterable(), maxItemsPerURL, filter), feedItems)
+    }
+
+    /**
+     * Loads the rss content asynchronously
+     *
+     * @param urls            A list of all the rss/atom feeds to load
+     * @param maxItemsPerURL  Maximum amount of items to load for each URL (if 0, no limit is applied)
+     * @param filter          A function to decide whether to include an item or not
+     * @param onFinished      The function to handle the loaded data (unsorted)
+     *
+     * @return the loading thread
+     */
+    inline fun load(
+        urls: Iterable<String>,
+        maxItemsPerURL: Int = 0,
+        noinline filter: (url: String, title: String, time: Date) -> Boolean = { _, _, _ -> true },
+        crossinline onFinished: (errorURLs: List<RssSource>, items: List<RssItem>) -> Unit,
+    ): Thread = thread(name = "RSS loading thread", isDaemon = true) {
+        val feedItems = ArrayList<RssItem>()
+        onFinished(load(feedItems, urls, maxItemsPerURL, filter), feedItems)
     }
 
     /**
      * Loads the rss content on the current thread
      *
-     * [feedItems] The place to write the rss data to
-     * [feedUrls] A list of all the rss/atom feeds to load
-     * [maxItems] Maximum amount of items to load (if 0, no limit is applied)
-     * [doSorting] Whether to sort the feed items by time or not
-     * [filter] A function to decide whether to include an item or not
-     * @return Whether the loading was successful or not
+     * @param output          The list to write the rss data to (unsorted)
+     * @param urls            A list of all the rss/atom feeds to load
+     * @param maxItemsPerURL  Maximum amount of items to load for each URL (if 0, no limit is applied)
+     * @param filter          A function to decide whether to include an item or not
+     *
+     * @return A list of URLs that failed
      */
     fun load(
-        feedItems: MutableList<RssItem>,
-        feedUrls: Collection<String>,
-        maxItems: Int = 0,
-        doSorting: Boolean = true,
-        filter: (url: String, title: String, time: Date) -> Boolean = { _, _, _ -> true }
-    ): List<RssSource> {
-        val erroredSources = loadFeedInternal(feedUrls, feedItems, filter, maxItems, doSorting)
-
-        for (s in erroredSources) {
-            println("Feed source ${s.name} failed")
-        }
-
-        if (maxItems != 0) {
-            if (feedItems.size > maxItems) {
-                repeat(feedItems.size - maxItems) {
-                    feedItems.removeAt(feedItems.lastIndex)
-                }
-            }
-        }
-
-        return erroredSources
-    }
-
-    private fun loadFeedInternal(
-        feedUrls: Collection<String>,
-        feedItems: MutableList<RssItem>,
-        filter: (url: String, title: String, time: Date) -> Boolean,
-        maxItems: Int,
-        doSorting: Boolean
+        output: MutableList<RssItem>,
+        urls: Iterable<String>,
+        maxItemsPerURL: Int = 0,
+        filter: (url: String, title: String, time: Date) -> Boolean = { _, _, _ -> true },
     ): LinkedList<RssSource> {
         val lock = ReentrantLock()
 
         val erroredSources = LinkedList<RssSource>()
         val threads = LinkedList<Thread>()
-        for (u in feedUrls) {
+        for (u in urls) {
             if (u.isNotEmpty()) {
-                val (url, domain, name) = getSourceInfo(u)
-                threads.add(thread(name = "RssLoader internal thread", isDaemon = true) {
+                val (url, domain, name) = RSSHelper.getSourceInfo(u)
+                threads.add(thread(name = "RSS internal thread", isDaemon = true) {
                     var i = 0
-                    while (i < endStrings.size) {
+                    while (i < COMMON_URL_SUFFIXES.size) {
                         try {
-                            val newUrl = url + endStrings[i]
+                            val newUrl = url + COMMON_URL_SUFFIXES[i]
                             val connection = URL(newUrl).openConnection()
                             parseFeed(
+                                output,
                                 connection.getInputStream(),
                                 RssSource(name, newUrl, domain),
                                 lock,
-                                feedItems,
                                 filter,
-                                maxItems
+                                maxItemsPerURL,
                             )
                             i = -1
                             break
                         }
                         catch (e: IOException) {}
-                        catch (e: Exception) { e.printStackTrace() }
                         i++
                     }
                     if (i != -1) {
@@ -123,10 +115,6 @@ object RssLoader {
             }
         }
 
-        var i = 0
-        var j: Int
-        var temp: RssItem
-
         val m = System.currentTimeMillis()
         for (thread in threads) {
             val millis = System.currentTimeMillis() - m
@@ -135,53 +123,19 @@ object RssLoader {
             }
         }
 
-        if (doSorting) while (i < feedItems.size - 1) {
-            j = i + 1
-            while (j < feedItems.size) {
-                if (feedItems[i].isBefore(feedItems[j])) {
-                    temp = feedItems[i]
-                    feedItems[i] = feedItems[j]
-                    feedItems[j] = temp
-                }
-                j++
-            }
-            i++
-        }
-
         return erroredSources
     }
 
-    private fun getSourceInfo(url: String): Triple<String, String, String> {
-        val u = if (url.endsWith("/")) {
-            url.substring(0, url.length - 1)
-        } else url
-        return if (u.startsWith("http://") || u.startsWith("https://")) {
-            val slashI = u.indexOf('/', 8)
-            val domain = if (slashI != -1) u.substring(0, slashI) else u
-            Triple(
-                u, domain, if (domain.startsWith("www.")) {
-                    domain.substring(4)
-                } else domain
-            )
-        } else {
-            val slashI = u.indexOf('/')
-            val domain = if (slashI != -1) u.substring(0, slashI) else u
-            Triple(
-                "https://$u", "https://$domain", if (domain.startsWith("www.")) {
-                    domain.substring(4)
-                } else domain
-            )
-        }
-    }
+    private val pullParserFactory: XmlPullParserFactory = XmlPullParserFactory.newInstance()
 
     @Throws(XmlPullParserException::class, IOException::class)
     private inline fun parseFeed(
+        output: MutableList<in RssItem>,
         inputStream: InputStream,
         source: RssSource,
         lock: ReentrantLock,
-        feedItems: MutableList<RssItem>,
         filter: (url: String, title: String, time: Date) -> Boolean,
-        maxItems: Int,
+        maxItemsPerURL: Int,
     ) {
         var title: String? = null
         var link: String? = null
@@ -207,9 +161,9 @@ object RssLoader {
                             }
                             if (title != null && link != null) {
                                 if (filter(link!!, title!!, time!!)) {
-                                    val t = unescapeCharacters(title!!)
+                                    val t = RSSHelper.unescapeCharacters(title!!)
                                     items.add(RssItem(t, link!!, img, time!!, source))
-                                    if (maxItems != 0 && items.size >= maxItems) {
+                                    if (maxItemsPerURL != 0 && items.size >= maxItemsPerURL) {
                                         return@use
                                     }
                                 }
@@ -226,14 +180,14 @@ object RssLoader {
                         name.equals("item", ignoreCase = true) -> isItem = 1
                         name.equals("entry", ignoreCase = true) -> isItem = 2
                         isItem == 1 -> when { //RSS
-                            name.equals("title", ignoreCase = true) -> title = getText(parser)
+                            name.equals("title", ignoreCase = true) -> title = RSSHelper.getText(parser)
                             name.equals("guid", ignoreCase = true) -> {
-                                id = getText(parser)
+                                id = RSSHelper.getText(parser)
                                 isPermaLink = parser.getAttributeValue(null, "isPermaLink").toBoolean()
                             }
-                            name.equals("link", ignoreCase = true) && link == null -> link = getText(parser)
+                            name.equals("link", ignoreCase = true) && link == null -> link = RSSHelper.getText(parser)
                             name.equals("pubDate", ignoreCase = true) -> {
-                                val text = getText(parser)
+                                val text = RSSHelper.getText(parser)
                                     .replace("GMT", "+0000")
                                     .replace("EDT", "+0000")
                                     .trim()
@@ -250,14 +204,14 @@ object RssLoader {
                             }
                             img == null -> when (name) {
                                 "description", "content:encoded" -> {
-                                    val result = getText(parser)
+                                    val result = RSSHelper.getText(parser)
                                     val i = result.indexOf("src=\"", result.indexOf("img"))
                                     if (i != -1) {
                                         val end = result.indexOf("\"", i + 5)
                                         img = result.substring(i + 5, end)
                                     }
                                 }
-                                "image" -> img = getText(parser)
+                                "image" -> img = RSSHelper.getText(parser)
                                 "media:content" -> {
                                     val medium = parser.getAttributeValue(null, "medium")
                                     val url = parser.getAttributeValue(null, "url")
@@ -274,16 +228,16 @@ object RssLoader {
                             }
                         }
                         isItem == 2 -> when { //Atom
-                            name.equals("title", ignoreCase = true) -> title = getText(parser)
-                            name.equals("id", ignoreCase = true) -> link = getText(parser)
+                            name.equals("title", ignoreCase = true) -> title = RSSHelper.getText(parser)
+                            name.equals("id", ignoreCase = true) -> link = RSSHelper.getText(parser)
                             name.equals("published", ignoreCase = true) ||
                             name.equals("updated", ignoreCase = true) -> {
-                                val text = getText(parser).trim()
+                                val text = RSSHelper.getText(parser).trim()
                                 val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
                                 time = try { format.parse(text)!! } catch (e: Exception) { Date(0) }
                             }
                             img == null && (name.equals("summary", ignoreCase = true) || name.equals("content", ignoreCase = true)) -> {
-                                val result = getText(parser)
+                                val result = RSSHelper.getText(parser)
                                 val i = result.indexOf("src=\"", result.indexOf("img"))
                                 if (i != -1) {
                                     val end = result.indexOf("\"", i + 5)
@@ -292,31 +246,31 @@ object RssLoader {
                             }
                         }
                         name.equals("title", ignoreCase = true) -> {
-                            val new = getText(parser)
+                            val new = RSSHelper.getText(parser)
                             if (new.isNotBlank()) {
                                 source.name = new
                             }
                         }
                         name.equals("icon", ignoreCase = true) -> {
-                            val new = getText(parser)
+                            val new = RSSHelper.getText(parser)
                             if (new.isNotBlank()) {
                                 source.iconUrl = new
                             }
                         }
                         name.equals("image", ignoreCase = true) -> {
-                            val new = parseInside(parser, name, "url")
+                            val new = RSSHelper.parseInside(parser, name, "url")
                             if (!new.isNullOrBlank()) {
                                 source.iconUrl = new
                             }
                         }
                         name.equals("webfeeds:icon", ignoreCase = true) -> {
-                            val new = getText(parser)
+                            val new = RSSHelper.getText(parser)
                             if (new.isNotBlank()) {
                                 source.iconUrl = new
                             }
                         }
                         name.equals("webfeeds:accentColor", ignoreCase = true) -> {
-                            val new = getText(parser)
+                            val new = RSSHelper.getText(parser)
                             if (new.isNotBlank()) {
                                 val color = new.toInt(16)
                                 source.accentColor = color or 0xff000000.toInt()
@@ -327,53 +281,7 @@ object RssLoader {
             }
         }
         lock.lock()
-        feedItems.addAll(items)
+        output.addAll(items)
         lock.unlock()
-    }
-
-    private fun unescapeCharacters(title: String): String {
-        return buildString {
-            var i = 0
-            val l = title.length
-            while (i < l) {
-                if (title[i] == '&') {
-                    i++
-                    if (title[i] == '#') {
-                        i++
-                        var u = 0
-                        while (i < l && title[i] != ';') {
-                            val d = title[i].digitToIntOrNull() ?: break
-                            u = u * 10 + d
-                            i++
-                        }
-                        append(u.toChar())
-                    }
-                } else {
-                    append(title[i])
-                }
-                i++
-            }
-        }
-    }
-
-    private fun parseInside(parser: XmlPullParser, parentTag: String, childTag: String): String? {
-        loop@ while (parser.next() != XmlPullParser.END_DOCUMENT) {
-            val name = parser.name ?: continue
-            when (parser.eventType) {
-                XmlPullParser.END_TAG -> {
-                    if (name == parentTag) return null
-                }
-                XmlPullParser.START_TAG -> {
-                    if (name == childTag) return getText(parser)
-                }
-            }
-        }
-        return null
-    }
-
-    private inline fun getText(parser: XmlPullParser): String {
-        return if (parser.next() == XmlPullParser.TEXT) {
-            parser.text.also { parser.nextTag() }
-        } else ""
     }
 }

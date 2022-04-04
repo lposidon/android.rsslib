@@ -1,4 +1,4 @@
-package posidon.android.loader.rss
+package io.posidon.android.rsslib
 
 import java.util.*
 
@@ -8,7 +8,7 @@ class RssItem(
     val img: String?,
     val time: Date,
     val source: RssSource
-) {
+) : Comparable<RssItem> {
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -21,5 +21,5 @@ class RssItem(
 
     override fun hashCode() = 31 * title.hashCode() + link.hashCode()
 
-    inline fun isBefore(other: RssItem) = time.before(other.time)
+    override fun compareTo(other: RssItem) = time.compareTo(other.time)
 }

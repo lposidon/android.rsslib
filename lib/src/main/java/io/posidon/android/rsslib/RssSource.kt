@@ -1,4 +1,4 @@
-package posidon.android.loader.rss
+package io.posidon.android.rsslib
 
 class RssSource(
     var name: String,
@@ -11,6 +11,6 @@ class RssSource(
     /**
      * If it's 0, that means there was no accent color information
      */
-    var accentColor: Int = 0
+    var accentColor: Int? = null
         internal set
 }

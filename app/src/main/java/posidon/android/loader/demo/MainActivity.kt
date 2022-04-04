@@ -1,28 +1,80 @@
 package posidon.android.loader.demo
 
-import android.app.Activity
-import android.content.Context
-import android.content.Intent
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
-import android.view.View
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.isVisible
+import io.posidon.android.rsslib.RSS
+import io.posidon.android.rsslib.RssItem
+import io.posidon.android.rsslib.RssSource
 
 class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val data = Text(this)
+        val err = Text(this, textColor = 0xffff4444.toInt())
+        val textField = TextField(this, hint = "https://example.com/rss", textSize = 20f)
         setContentView(
-            Column(this,
-                ActivityButton(this, "Rss", RSSTestActivity::class.java),
-                ActivityButton(this, "DuckDuckGo", DDGTestActivity::class.java),
-                ActivityButton(this, "TextLoading", TextLoadingTestActivity::class.java)
+            Scrollable(this,
+                Column(this,
+                    Row(this,
+                        textField,
+                        Button(this, "go") {
+                            var u = textField.text.toString()
+                            if (!u.startsWith("https://") && !u.startsWith("http://")) {
+                                u = "https://$u"
+                            }
+                            RSS.load(u) { erroredSources: List<RssSource>, items: List<RssItem> ->
+                                val success = erroredSources.isEmpty()
+                                if (success) {
+                                    runOnUiThread {
+                                        data.isVisible = true
+                                        data.text = items.joinToString("\n\n") {
+                                            buildString {
+                                                append("Title: ")
+                                                append(it.title)
+                                                append('\n')
+                                                append("Url: ")
+                                                append(it.link)
+                                                append('\n')
+                                                append("Cover: ")
+                                                append(it.img)
+                                                append('\n')
+                                                append("Time: ")
+                                                append(it.time)
+                                                append('\n')
+                                                append("Source name: ")
+                                                append(it.source.name)
+                                                append('\n')
+                                                append("Source domain: ")
+                                                append(it.source.domain)
+                                                append('\n')
+                                                append("Source url: ")
+                                                append(it.source.url)
+                                                append('\n')
+                                                append("Source icon: ")
+                                                append(it.source.iconUrl)
+                                                append('\n')
+                                                append("Source color: ")
+                                                append(it.source.accentColor?.toString(16))
+                                            }
+                                        }
+                                        err.isVisible = false
+                                    }
+                                } else {
+                                    runOnUiThread {
+                                        err.isVisible = true
+                                        err.text = "${System.currentTimeMillis()} Errors (${erroredSources.size}): \n\t${erroredSources.joinToString("\n\t", transform = RssSource::url)}"
+                                        data.isVisible = false
+                                    }
+                                }
+                            }
+                        }
+                    ),
+                    err,
+                    data,
+                )
             )
         )
-    }
-
-    inline fun <T : Activity> ActivityButton(context: Context, name: String, activity: Class<T>): View {
-        return Button(context, name, textSize = 28f) {
-            context.startActivity(Intent(context, activity))
-        }
     }
 }
